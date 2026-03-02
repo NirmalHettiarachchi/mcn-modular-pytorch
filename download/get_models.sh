@@ -10,10 +10,14 @@ cd data
 # Public Google Drive folder from the original repo README (models/data backup).
 DRIVE_FOLDER_ID="1heYHAOJX0mdeLH95jxdfxry6RC_KMVyZ"
 DRIVE_FOLDER_URL="https://drive.google.com/drive/folders/${DRIVE_FOLDER_ID}"
+TORRENT_URL="https://orion.hyper.ai/tracker/download?torrent=21327"
+TORRENT_FILE="didemo.torrent"
+TORRENT_ROOT_DIR="DiDeMo"
 
 download_or_fallback() {
   local target_name="$1"
   local primary_url="$2"
+  local torrent_src_name="$3"
   local fallback_needed=0
 
   if [ -f "${target_name}" ]; then
@@ -57,7 +61,29 @@ download_or_fallback() {
         exit 1
       fi
     fi
-    gdown --folder "${DRIVE_FOLDER_URL}" -O .
+    if ! gdown --folder "${DRIVE_FOLDER_URL}" -O .; then
+      echo "Google Drive folder download failed for ${target_name}."
+      echo "This usually means the folder is not publicly listable or is quota-limited."
+
+      echo "Trying public torrent mirror fallback (no Google credentials needed)..."
+      if ! command -v aria2c >/dev/null 2>&1; then
+        echo "aria2c is required for torrent fallback."
+        echo "Install and rerun:"
+        echo "  sudo apt update && sudo apt install -y aria2"
+      else
+        if [ ! -f "${TORRENT_FILE}" ]; then
+          wget -O "${TORRENT_FILE}" "${TORRENT_URL}"
+        fi
+        # Files 3 and 4 in this torrent are:
+        # 3 -> data/average_flow_feats.h5, 4 -> data/average_rgb_feats.h5
+        aria2c --seed-time=0 --select-file=3,4 --dir . "${TORRENT_FILE}" || true
+      fi
+    fi
+
+    # Map mirrored filenames to expected local filenames.
+    if [ -f "${TORRENT_ROOT_DIR}/data/${torrent_src_name}" ] && [ ! -f "${target_name}" ]; then
+      cp "${TORRENT_ROOT_DIR}/data/${torrent_src_name}" "${target_name}"
+    fi
   fi
 
   if [ ! -f "${target_name}" ]; then
@@ -70,9 +96,11 @@ download_or_fallback() {
 
 # Pre-extracted features required for training/evaluation.
 download_or_fallback "average_fc7.h5" \
-  "https://people.eecs.berkeley.edu/~lisa_anne/didemo/data/average_fc7.h5"
+  "https://people.eecs.berkeley.edu/~lisa_anne/didemo/data/average_fc7.h5" \
+  "average_rgb_feats.h5"
 download_or_fallback "average_global_flow.h5" \
-  "https://people.eecs.berkeley.edu/~lisa_anne/didemo/data/average_global_flow.h5"
+  "https://people.eecs.berkeley.edu/~lisa_anne/didemo/data/average_global_flow.h5" \
+  "average_flow_feats.h5"
 
 # GloVe embedding expected by utils/data_processing.py.
 if [ ! -f "glove.6B.zip" ]; then
