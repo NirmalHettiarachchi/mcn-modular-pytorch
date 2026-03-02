@@ -5,7 +5,7 @@ import json
 import os
 import random
 from dataclasses import asdict
-from typing import Dict
+from typing import Any, Dict
 
 import h5py
 import numpy as np
@@ -78,8 +78,19 @@ def build_checkpoint_payload(
 
 
 def write_json(path: str, payload: Dict[str, object]) -> None:
+    def _json_sanitize(value: Any):
+        if isinstance(value, dict):
+            return {str(k): _json_sanitize(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [_json_sanitize(v) for v in value]
+        if isinstance(value, np.ndarray):
+            return {"ndarray_shape": list(value.shape)}
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
+
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
+        json.dump(_json_sanitize(payload), handle, indent=2, sort_keys=True)
     print(f"Wrote config to: {path}")
 
 

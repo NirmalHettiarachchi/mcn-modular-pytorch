@@ -1,6 +1,9 @@
 #!/bin/bash
+set -euo pipefail
 
-python build_net.py --feature_process_visual feature_process_context  \
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
+"${PYTHON_BIN}" build_net.py --feature_process_visual feature_process_context  \
                     --loc \
                     --vision_layers 2 \
                     --dropout_visual 0.3 \
