@@ -7,7 +7,19 @@ import pickle as pkl
 
 feature_root = 'flow_features/' #wherever your features are
 video_list = [feature_root + v for v in os.listdir(feature_root)]
-fps_dict = pkl.load(open('data/frame_rate_clean.p', 'rb'), encoding='latin1')
+
+
+def load_fps_dict(path):
+    with open(path, 'rb') as handle:
+        raw = handle.read()
+    try:
+        return pkl.loads(raw, encoding='latin1')
+    except Exception:
+        # Windows CRLF conversion can corrupt this Python2-text pickle.
+        return pkl.loads(raw.replace(b'\r\n', b'\n'), encoding='latin1')
+
+
+fps_dict = load_fps_dict('data/frame_rate_clean.p')
 
 def make_h5_dict(name):
 

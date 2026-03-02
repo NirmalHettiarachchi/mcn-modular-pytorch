@@ -1,115 +1,148 @@
 #!/bin/bash
 set -euo pipefail
 
-mkdir -p snapshots
-mkdir -p prototxts
-mkdir -p data
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DATA_DIR="${ROOT_DIR}/data"
 
-cd data
+# Store huge archives on Linux filesystem by default (more reliable than /mnt/d).
+HF_RAW_DIR="${HF_RAW_DIR:-${HOME}/didemo_cache/hf_raw}"
+HF_BASE_URL="https://huggingface.co/datasets/YimuWang/didemon_retrieval/resolve/main"
 
-# Public Google Drive folder from the original repo README (models/data backup).
-DRIVE_FOLDER_ID="1heYHAOJX0mdeLH95jxdfxry6RC_KMVyZ"
-DRIVE_FOLDER_URL="https://drive.google.com/drive/folders/${DRIVE_FOLDER_ID}"
-TORRENT_URL="https://orion.hyper.ai/tracker/download?torrent=21327"
-TORRENT_FILE="didemo.torrent"
-TORRENT_ROOT_DIR="DiDeMo"
+mkdir -p "${ROOT_DIR}/snapshots" "${ROOT_DIR}/prototxts" "${DATA_DIR}" "${HF_RAW_DIR}"
 
-download_or_fallback() {
-  local target_name="$1"
-  local primary_url="$2"
-  local torrent_src_name="$3"
-  local fallback_needed=0
-
-  if [ -f "${target_name}" ]; then
-    echo "Found ${target_name}, skipping."
-    return 0
-  fi
-
-  echo "Trying primary host for ${target_name}..."
-  if ! wget -O "${target_name}" "${primary_url}"; then
-    rm -f "${target_name}"
-    fallback_needed=1
-  fi
-
-  if [ "${fallback_needed}" -eq 1 ]; then
-    echo "Primary host failed for ${target_name}. Falling back to Google Drive folder..."
-    if ! command -v gdown >/dev/null 2>&1; then
-      if command -v python3 >/dev/null 2>&1; then
-        if ! python3 -m pip --version >/dev/null 2>&1; then
-          python3 -m ensurepip --upgrade >/dev/null 2>&1 || true
-        fi
-        python3 -m pip install --user --upgrade pip >/dev/null 2>&1 || true
-        python3 -m pip install --user gdown >/dev/null 2>&1 || true
-      fi
-      if ! command -v gdown >/dev/null 2>&1 && command -v pip3 >/dev/null 2>&1; then
-        pip3 install --user gdown >/dev/null 2>&1 || true
-      fi
-      if ! command -v gdown >/dev/null 2>&1 && command -v python >/dev/null 2>&1; then
-        if ! python -m pip --version >/dev/null 2>&1; then
-          python -m ensurepip --upgrade >/dev/null 2>&1 || true
-        fi
-        python -m pip install --user --upgrade pip >/dev/null 2>&1 || true
-        python -m pip install --user gdown >/dev/null 2>&1 || true
-      fi
-      if ! command -v gdown >/dev/null 2>&1; then
-        echo "ERROR: gdown is required for Google Drive fallback but could not be installed automatically."
-        echo "Install manually and rerun:"
-        echo "  python3 -m ensurepip --upgrade"
-        echo "  python3 -m pip install --user gdown"
-        echo "Or manually download files from:"
-        echo "  ${DRIVE_FOLDER_URL}"
-        exit 1
-      fi
-    fi
-    if ! gdown --folder "${DRIVE_FOLDER_URL}" -O .; then
-      echo "Google Drive folder download failed for ${target_name}."
-      echo "This usually means the folder is not publicly listable or is quota-limited."
-
-      echo "Trying public torrent mirror fallback (no Google credentials needed)..."
-      if ! command -v aria2c >/dev/null 2>&1; then
-        echo "aria2c is required for torrent fallback."
-        echo "Install and rerun:"
-        echo "  sudo apt update && sudo apt install -y aria2"
-      else
-        if [ ! -f "${TORRENT_FILE}" ]; then
-          wget -O "${TORRENT_FILE}" "${TORRENT_URL}"
-        fi
-        # Files 3 and 4 in this torrent are:
-        # 3 -> data/average_flow_feats.h5, 4 -> data/average_rgb_feats.h5
-        aria2c --seed-time=0 --select-file=3,4 --dir . "${TORRENT_FILE}" || true
-      fi
-    fi
-
-    # Map mirrored filenames to expected local filenames.
-    if [ -f "${TORRENT_ROOT_DIR}/data/${torrent_src_name}" ] && [ ! -f "${target_name}" ]; then
-      cp "${TORRENT_ROOT_DIR}/data/${torrent_src_name}" "${target_name}"
-    fi
-  fi
-
-  if [ ! -f "${target_name}" ]; then
-    echo "ERROR: Could not download ${target_name}."
-    echo "Open this folder and download it manually into ./data:"
-    echo "${DRIVE_FOLDER_URL}"
+require_cmd() {
+  local cmd="$1"
+  if ! command -v "${cmd}" >/dev/null 2>&1; then
+    echo "ERROR: '${cmd}' is required but not found."
     exit 1
   fi
 }
 
-# Pre-extracted features required for training/evaluation.
-download_or_fallback "average_fc7.h5" \
-  "https://people.eecs.berkeley.edu/~lisa_anne/didemo/data/average_fc7.h5" \
-  "average_rgb_feats.h5"
-download_or_fallback "average_global_flow.h5" \
-  "https://people.eecs.berkeley.edu/~lisa_anne/didemo/data/average_global_flow.h5" \
-  "average_flow_feats.h5"
+download_glove() {
+  pushd "${DATA_DIR}" >/dev/null
+  if [ ! -f "glove.6B.zip" ]; then
+    wget -c "http://nlp.stanford.edu/data/glove.6B.zip"
+  fi
+  unzip -o "glove.6B.zip"
+  rm -f "glove.6B.50d.txt" "glove.6B.100d.txt" "glove.6B.200d.txt"
+  popd >/dev/null
+}
 
-# GloVe embedding expected by utils/data_processing.py.
-if [ ! -f "glove.6B.zip" ]; then
-  wget http://nlp.stanford.edu/data/glove.6B.zip
+try_primary_average_download() {
+  local ok=1
+
+  if [ ! -f "${DATA_DIR}/average_fc7.h5" ]; then
+    if ! wget -c -O "${DATA_DIR}/average_fc7.h5" \
+      "https://people.eecs.berkeley.edu/~lisa_anne/didemo/data/average_fc7.h5"; then
+      rm -f "${DATA_DIR}/average_fc7.h5"
+      ok=0
+    fi
+  fi
+
+  if [ ! -f "${DATA_DIR}/average_global_flow.h5" ]; then
+    if ! wget -c -O "${DATA_DIR}/average_global_flow.h5" \
+      "https://people.eecs.berkeley.edu/~lisa_anne/didemo/data/average_global_flow.h5"; then
+      rm -f "${DATA_DIR}/average_global_flow.h5"
+      ok=0
+    fi
+  fi
+
+  if [ "${ok}" -eq 1 ] && \
+    [ -f "${DATA_DIR}/average_fc7.h5" ] && \
+    [ -f "${DATA_DIR}/average_global_flow.h5" ]; then
+    return 0
+  fi
+
+  return 1
+}
+
+download_hf_parts() {
+  pushd "${HF_RAW_DIR}" >/dev/null
+
+  for i in 0 1 2 3; do
+    wget -c "${HF_BASE_URL}/flow_features.tar.${i}"
+  done
+
+  for i in $(seq -w 0 12); do
+    wget -c "${HF_BASE_URL}/rgb_vgg_fc7_features.tar.${i}"
+  done
+
+  popd >/dev/null
+}
+
+assemble_hf_archives() {
+  pushd "${HF_RAW_DIR}" >/dev/null
+
+  cat flow_features.tar.0 flow_features.tar.1 flow_features.tar.2 flow_features.tar.3 > flow_features.tar
+  tar -tf flow_features.tar >/dev/null
+
+  cat \
+    rgb_vgg_fc7_features.tar.00 \
+    rgb_vgg_fc7_features.tar.01 \
+    rgb_vgg_fc7_features.tar.02 \
+    rgb_vgg_fc7_features.tar.03 \
+    rgb_vgg_fc7_features.tar.04 \
+    rgb_vgg_fc7_features.tar.05 \
+    rgb_vgg_fc7_features.tar.06 \
+    rgb_vgg_fc7_features.tar.07 \
+    rgb_vgg_fc7_features.tar.08 \
+    rgb_vgg_fc7_features.tar.09 \
+    rgb_vgg_fc7_features.tar.10 \
+    rgb_vgg_fc7_features.tar.11 \
+    rgb_vgg_fc7_features.tar.12 > rgb_vgg_fc7_features.tar
+  tar -tf rgb_vgg_fc7_features.tar >/dev/null
+
+  if [ ! -d flow_features ]; then
+    tar -xf flow_features.tar
+  fi
+  if [ ! -d rgb_vgg_fc7_features ]; then
+    tar -xf rgb_vgg_fc7_features.tar
+  fi
+
+  popd >/dev/null
+}
+
+build_average_features_from_hf() {
+  pushd "${ROOT_DIR}" >/dev/null
+  ln -sfn "${HF_RAW_DIR}/flow_features" flow_features
+  ln -sfn "${HF_RAW_DIR}/rgb_vgg_fc7_features" rgb_features
+
+  python3 make_average_video_dict.py
+  python3 make_average_video_dict_flow.py
+
+  cp -f "${DATA_DIR}/average_rgb_feats.h5" "${DATA_DIR}/average_fc7.h5"
+  cp -f "${DATA_DIR}/average_flow_feats.h5" "${DATA_DIR}/average_global_flow.h5"
+  popd >/dev/null
+}
+
+require_cmd wget
+require_cmd tar
+require_cmd unzip
+require_cmd python3
+
+download_glove
+
+if [ -f "${DATA_DIR}/average_fc7.h5" ] && [ -f "${DATA_DIR}/average_global_flow.h5" ]; then
+  echo "Found average_fc7.h5 and average_global_flow.h5. Skipping feature download."
+  exit 0
 fi
-unzip -o glove.6B.zip
-rm -f glove.6B.50d.txt glove.6B.100d.txt glove.6B.200d.txt
 
-cd ..
+echo "Trying primary Berkeley feature links..."
+if try_primary_average_download; then
+  echo "Downloaded average features from primary links."
+  exit 0
+fi
 
-echo "Downloaded features and embeddings."
-echo "PyTorch checkpoints are created by build_net.py (no Caffe .caffemodel files are used)."
+echo "Primary links unavailable. Falling back to Hugging Face HTTP mirror (no torrent)."
+echo "HF_RAW_DIR=${HF_RAW_DIR}"
+download_hf_parts
+assemble_hf_archives
+build_average_features_from_hf
+
+if [ ! -f "${DATA_DIR}/average_fc7.h5" ] || [ ! -f "${DATA_DIR}/average_global_flow.h5" ]; then
+  echo "ERROR: Failed to prepare average feature files."
+  exit 1
+fi
+
+echo "Prepared data/average_fc7.h5 and data/average_global_flow.h5."
+echo "PyTorch checkpoints are created by build_net.py in snapshots/*.pt."

@@ -5,3 +5,6 @@ __pycache__/
 snapshots/
 results/
 prototxts/
+data/
+flow_features/
+rgb_features/
