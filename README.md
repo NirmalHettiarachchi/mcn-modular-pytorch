@@ -17,15 +17,57 @@ License: BSD 2-Clause license
 
 ## Running the Code
 
-**Preliminaries**:  I trained all my models with the [BVLC caffe version](https://github.com/BVLC/caffe).  Before you start, look at "utils/config.py" and change any paths as needed (e.g., perhaps you want to point to a Caffe build in a different folder).
+This repository now uses **PyTorch** (Caffe dependency removed).
+
+### 1) Create and use a virtual environment
+
+```bash
+python -m venv .venv
+```
+
+Linux/macOS:
+
+```bash
+source .venv/bin/activate
+```
+
+Windows PowerShell:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 2) Download required features and embeddings
+
+```bash
+bash download/get_models.sh
+```
 
 **Evaluation**
 
-Look at "utils/eval.py" if you would like to evaluate a model that you have trained.  Below are instructions to eval the models I proposed in my paper:
+Look at `utils/eval.py` if you want to evaluate ranked segment predictions.
 
-* ~Download data/models with "download/get_models.sh".  This should download models I trained and pre-extracted features.  Note that I retrained my models before releasing and the numbers are slightly different than those reported in the paper.~
-* My website got deleted when I graduated.  Please find data on a google drive [here](https://drive.google.com/drive/u/1/folders/1heYHAOJX0mdeLH95jxdfxry6RC_KMVyZ).
-* Run "test_network.sh".  This will run both RGB and flow models on the val and test sets.  It will also produce the scorse for the fusion model.  
+1. Train RGB and flow models (or provide checkpoint tags from previous training).
+2. Run:
+
+```bash
+bash test_network.sh <rgb_snapshot_tag> <flow_snapshot_tag> [iter]
+```
+
+This runs val/test for RGB and flow checkpoints and then runs late fusion.
+
+Model snapshots are stored as:
+
+```text
+snapshots/<snapshot_tag>_iter_<iter>.pt
+```
 
 You should get the following outputs:
 
@@ -40,7 +82,28 @@ You should get the following outputs:
 
 **Training**
 
-Use "run_job_rgb.sh" to train an RGB model and "run_job_flow.sh" to train a flow model.  You should be able to rerun these scripts and get simiar numbers to those reported in the paper.
+Use `run_job_rgb.sh` to train an RGB model and `run_job_flow.sh` to train a flow model.
+
+You can also run training directly, e.g.:
+
+```bash
+python build_net.py --feature_process_visual feature_process_context \
+                    --loc \
+                    --vision_layers 2 \
+                    --language_layers lstm_no_embed \
+                    --feature_process_language recurrent_embedding \
+                    --visual_embedding_dim 500 100 \
+                    --language_embedding_dim 1000 100 \
+                    --max_iter 30000 \
+                    --snapshot 10000 \
+                    --stepsize 10000 \
+                    --base_lr 0.05 \
+                    --loss_type triplet \
+                    --lw_inter 0.2 \
+                    --tag rgb_model_
+```
+
+`build_net.py` writes deploy metadata to `prototxts/*.json` and checkpoints to `snapshots/*.pt`.
 
 ## Dataset
 

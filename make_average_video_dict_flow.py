@@ -5,9 +5,9 @@ import pdb
 import sys
 import pickle as pkl
 
-feature_root = 'flow_features/' #wherever your features are 
+feature_root = 'flow_features/' #wherever your features are
 video_list = [feature_root + v for v in os.listdir(feature_root)]
-fps_dict = pkl.load(open('data/frame_rate_clean.p', 'rb'))
+fps_dict = pkl.load(open('data/frame_rate_clean.p', 'rb'), encoding='latin1')
 
 def make_h5_dict(name):
 
@@ -18,7 +18,7 @@ def make_h5_dict(name):
  
     feature_dict = {}
     for key in fps_dict.keys():
-        feature_dict[key] = np.zeros((30/seconds_per_chunk, feature_dim))
+        feature_dict[key] = np.zeros((30 // seconds_per_chunk, feature_dim))
 
     for i, video in enumerate(video_list):
          sys.stdout.write('\r%d/%d' %(i, len(video_list)))
@@ -43,10 +43,10 @@ def make_h5_dict(name):
  
          feature_dict[video_name] = average_frames
  
-    print "\n"
+    print("\n")
     f = h5py.File('data/%s.h5' %name, "w")
     for key in feature_dict.keys():
-        dset = f.create_dataset(key, data=feature_dict[key])
+        f.create_dataset(key, data=feature_dict[key])
     f.close()
 
 make_h5_dict('average_flow_feats')

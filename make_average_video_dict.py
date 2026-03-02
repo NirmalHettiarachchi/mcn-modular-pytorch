@@ -4,7 +4,7 @@ import h5py
 import pdb
 import sys
 
-feature_root = 'rgb_features/' #wherever your features are 
+feature_root = 'rgb_features/' #wherever your features are
 video_list = [feature_root + v for v in os.listdir(feature_root)]
 
 def make_h5_dict(name):
@@ -23,7 +23,7 @@ def make_h5_dict(name):
 
        sys.stdout.write('\r%d/%d' %(i, len(video_list)))
        f = video 
-       average_frames = np.zeros((30/seconds_per_chunk, feature_dim))
+       average_frames = np.zeros((30 // seconds_per_chunk, feature_dim))
 
        h5_file = h5py.File(f)
        features = np.array(h5_file['features'])
@@ -39,10 +39,10 @@ def make_h5_dict(name):
        video_name = video.split('fps25_')[-1].split('.h5')[0]
        feature_dict[video_name] = average_frames
 
-   print "\n"
+   print("\n")
    f = h5py.File('data/%s.h5' %name, "w")
    for key in feature_dict.keys():
-       dset = f.create_dataset(key, data=feature_dict[key])
+       f.create_dataset(key, data=feature_dict[key])
    f.close()
 
 make_h5_dict('average_rgb_feats')
